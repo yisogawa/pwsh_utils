@@ -72,21 +72,17 @@ class ConsoleWriter : System.IDisposable {
 		[System.Console]::Write($text)
 	}
 	[void] PrintLn([string]$text) {
-		[System.Console]::Write($text)
-		$this.EraseToEndOfLn()
+		[System.Console]::Write([char]0x1B + "[K" + $text) # clear to EOL and print text
 		if ([System.Console]::CursorTop -lt [System.Console]::WindowHeight - 1) {
 			[System.Console]::CursorTop += 1
 			[System.Console]::CursorLeft = 0
 		}
 	}
-	[void] EraseToEndOfLn() {
-		[Console]::Write([char]0x1B + "[K")
-	}
-	[void] EraseToEndOfScr() {
-		[Console]::Write([char]0x1B + "[0J")
-	}
 	[void] Clear() {
 		[System.Console]::Clear()
+	}
+	[void] ClearToEndOfScreen() {
+		[Console]::Write([char]0x1B + "[0J")
 	}
 	# impl for System.IDisposable
 	[void] Dispose() {
@@ -296,12 +292,14 @@ try {
 		# detect status change
 		if (
 			$Script:lastQuery -eq $query -and
-			$Script:lastCurrentDir -eq $currentDir
+			$Script:lastCurrentDir -eq $currentDir -and
+			-not $Script:reloadRequired
 		) {
 			return
 		}
 		$Script:lastQuery = $query
 		$Script:lastCurrentDir = $currentDir
+		$Script:reloadRequired = $false
 
 		$itemList.SetItems($fs.GetChildItems($query))
 	}
@@ -376,7 +374,7 @@ try {
 		else {
 			$cout.PrintLn($Global:PSStyle.Dim + "-- NO ITEM --" + $Global:PSStyle.DimOff)
 		}
-		$cout.EraseToEndOfScr()
+		$cout.ClearToEndOfScreen()
 
 		# set cursor for input box
 		$cout.SetCursorPosition($inputBoxPosition)
@@ -397,6 +395,7 @@ try {
 					'B' { execGoBackHistory }
 					'C' { $itemList.SelectedItem().FullName | Set-Clipboard }
 					'F' { execGoForwardHistory }
+					'R' { $Script:reloadRequired = $true }
 					'U' { execMoveToParentDir }
 					'V' { $inputBox.InsertString((Get-Clipboard)) }
 				}
@@ -434,6 +433,9 @@ try {
 	}
 
 	function execOpenItem() {
+		if (-not $itemList.SelectedItem()) {
+			return
+		}
 		$path = $fs.ResolvePath($itemList.SelectedItem(), $true)
 
 		if ($fs.IsDirectory($path)) {

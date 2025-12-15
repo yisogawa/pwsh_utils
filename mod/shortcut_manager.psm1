@@ -1,22 +1,27 @@
 class ShortcutManager {
-	$wss = (New-Object -ComObject WScript.Shell)
-
-	[object] OpenShortcut([string]$path) {
+	static [object] OpenShortcut([string]$path) {
 		$path = (Resolve-Path -LiteralPath $path).ProviderPath
-		return $this.wss.CreateShortcut($path)
+		$wss = [ShortcutManager]::_CreateWSS()
+		return $wss.CreateShortcut($path)
 	}
-	[string] GetShortcutTarget([string]$path) {
-		return $this.OpenShortcut($path).TargetPath
+	static [string] GetShortcutTarget([string]$path) {
+		$shortcut = [ShortcutManager]::OpenShortcut($path)
+		return $shortcut.TargetPath
 	}
-	[object] CreateShortcut([string]$path, [string]$targetPath) {
-		$path = (Resolve-Path -LiteralPath $path).ProviderPath
+	static [object] CreateShortcut([string]$path, [string]$targetPath) {
 		if ($path.ToLower().EndsWith(".lnk")) {
 			$targetPath = (Resolve-Path -LiteralPath $targetPath).ProviderPath
 		}
 
-		$shortcut = $this.wss.CreateShortcut($path)
+		$wss = [ShortcutManager]::_CreateWSS()
+		$shortcut = $wss.CreateShortcut($path)
 		$shortcut.TargetPath = $targetPath
 		$shortcut.Save()
 		return $shortcut
+	}
+	static [object] _CreateWSS() {
+		$wss = New-Object -ComObject WScript.Shell
+		$wss.CurrentDirectory = (Get-Location).ProviderPath
+		return $wss
 	}
 }

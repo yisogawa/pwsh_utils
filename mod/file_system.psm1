@@ -3,7 +3,6 @@ using module .\shortcut_manager.psm1
 class FileSystem {
 	[string]$SYS_ROOT_PATH = "(root)"
 	[string]$virtualCurrentDir = $null
-	[ShortcutManager]$shortcutManager = [ShortcutManager]::new()
 
 	[string] GetCurrentDir() {
 		if ($this.virtualCurrentDir) {
@@ -66,7 +65,7 @@ class FileSystem {
 		$item = Get-Item $path -Force
 		if ($traceShortcutTarget) {
 			if ($item.GetType() -eq [System.IO.FileInfo] -and $item.Extension -eq ".lnk") {
-				$targetPath = $this.shortcutManager.GetShortcutTarget($path)
+				$targetPath = [ShortcutManager]::GetShortcutTarget($path)
 				return $this.ResolvePath($targetPath, $true)
 			}
 		}

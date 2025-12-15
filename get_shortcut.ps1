@@ -7,14 +7,12 @@ param (
 
 begin {
 	$ErrorActionPreference = 'Stop'
-
-	$sm = [ShortcutManager]::new()
 }
 process {
 	if ($AsObject) {
-		return $sm.OpenShortcut($Path)
+		return [ShortcutManager]::OpenShortcut($Path)
 	}
 	else {
-		return $sm.GetShortcutTarget($Path)
+		return [ShortcutManager]::GetShortcutTarget($Path)
 	}
 }

@@ -7,5 +7,4 @@ param (
 
 $ErrorActionPreference = 'Stop'
 
-$sm = [ShortcutManager]::new()
-return $sm.CreateShortcut($Name, $TargetPath)
+return [ShortcutManager]::CreateShortcut($Name, $TargetPath)
