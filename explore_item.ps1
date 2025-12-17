@@ -244,13 +244,10 @@ class ListViewer {
 }
 
 class History {
-	[array] $entries
-	[int] $currentIndex
+	[array] $entries = @()
+	[int] $currentIndex = 0
 
-	History([object]$firstEntry) {
-		$this.entries = @($firstEntry)
-		$this.currentIndex = 0
-	}
+	History() {}
 	[void] Do([object]$entry) {
 		$this.entries = $this.entries[0..($this.currentIndex)] # discard future entries
 		$this.entries += $entry
@@ -280,10 +277,19 @@ try {
 	$cin = [ConsoleReader]::new()
 	$cout = [ConsoleWriter]::new()
 
-	$fs.SetCurrentDir($Path) | Out-Null
-	$history = [History]::new($fs.GetCurrentDir())
+	$history = [History]::new()
 	$inputBox = [InputBox]::new()
 	$itemList = [ListViewer]::new()
+
+	$Path = $fs.ResolvePath($Path, $true)
+	if ($fs.IsDirectory($Path)) {
+		$fs.SetCurrentDir($Path) | Out-Null
+	}
+	else {
+		$fs.SetCurrentDir(($Path | Split-Path -Parent)) | Out-Null
+		$inputBox.InsertString(($Path | Split-Path -Leaf))
+	}
+	$history.Do($fs.GetCurrentDir())
 
 	function updateItemList() {
 		$query = $inputBox.Text()

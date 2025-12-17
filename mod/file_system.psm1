@@ -1,7 +1,9 @@
 using module .\shortcut_manager.psm1
 
+$ErrorActionPreference = 'Stop'
+
 class FileSystem {
-	[string]$SYS_ROOT_PATH = "(root)"
+	[string]$SYS_ROOT_PATH = "<root>"
 	[string]$virtualCurrentDir = $null
 
 	[string] GetCurrentDir() {
@@ -33,6 +35,9 @@ class FileSystem {
 		return $true
 	}
 	[bool] IsDirectory([string]$path) {
+		if ($path -eq $this.SYS_ROOT_PATH) {
+			return $true
+		}
 		return Test-Path -LiteralPath $path -PathType Container
 	}
 	[void] OpenFile([string]$path) {
@@ -62,6 +67,9 @@ class FileSystem {
 		| Sort-Object { $prefixMatchQuery.IsMatch($_.Name) } -Descending -Stable
 	}
 	[string] ResolvePath([string]$path, [bool]$traceShortcutTarget) {
+		if ($path -eq $this.SYS_ROOT_PATH) {
+			return $path
+		}
 		$item = Get-Item $path -Force
 		if ($traceShortcutTarget) {
 			if ($item.GetType() -eq [System.IO.FileInfo] -and $item.Extension -eq ".lnk") {

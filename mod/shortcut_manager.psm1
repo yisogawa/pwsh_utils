@@ -1,3 +1,5 @@
+$ErrorActionPreference = 'Stop'
+
 class ShortcutManager {
 	static [object] OpenShortcut([string]$path) {
 		$path = (Resolve-Path -LiteralPath $path).ProviderPath
