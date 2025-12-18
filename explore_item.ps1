@@ -33,6 +33,12 @@ class ConsoleReader : System.IDisposable {
 }
 
 class ConsoleWriter : System.IDisposable {
+	$ANSI_ESC_CODES = @{
+		ENTER_ALTERNATE_SCREEN_BUF  = [char]0x1B + "[?1049h"
+		LEAVE_ALTERNALTE_SCREEN_BUF = [char]0x1B + "[?1049l"
+		ERASE_TO_END_OF_LINE        = [char]0x1B + "[K"
+		ERASE_TO_END_OF_SCREEN      = [char]0x1B + "[0J"
+	}
 	$prevCursorVisible
 	$prevOutputRendering
 
@@ -43,8 +49,7 @@ class ConsoleWriter : System.IDisposable {
 		[System.Console]::CursorVisible = $false
 		$Global:PSStyle.OutputRendering = 'Ansi'
 
-		# enter alternate screen buffer
-		[Console]::Write([char]0x1B + "[?1049h")
+		[Console]::Write($this.ANSI_ESC_CODES.ENTER_ALTERNATE_SCREEN_BUF)
 		[System.Console]::Clear()
 	}
 	[int] WindowWidth() {
@@ -72,25 +77,46 @@ class ConsoleWriter : System.IDisposable {
 		[System.Console]::Write($text)
 	}
 	[void] PrintLn([string]$text) {
-		[System.Console]::Write([char]0x1B + "[K" + $text) # clear to EOL and print text
-		if ([System.Console]::CursorTop -lt [System.Console]::WindowHeight - 1) {
-			[System.Console]::CursorTop += 1
-			[System.Console]::CursorLeft = 0
+		# split text into lines
+		$lines = [PSCustomObject]@{ Text = $text }
+		| Format-Table -HideTableHeaders -Wrap
+		| Out-String -Stream
+		| Where-Object { -not [string]::IsNullOrEmpty($_) }
+		if (-not $lines) {
+			$lines = @("")
+		}
+
+		foreach ($line in $lines) {
+			# NOTE: write erase code in advance to avoid deleting last char of written text at right end of screen.
+			#
+			# writing text to fill console line, cursor position will be at right end of screen.
+			# | <-- screen --> |
+			# |AAAAAAAAAAAAAAAA| <-- text
+			# |               _| <-- cursor position
+			#
+			# erase code deletes last 'A' in this circumstance.
+			# | <-- screen --> |
+			# |AAAAAAAAAAAAAAA | <-- text
+			# |               _| <-- cursor position
+			[System.Console]::Write($this.ANSI_ESC_CODES.ERASE_TO_END_OF_LINE + $line)
+			if ([System.Console]::CursorTop -lt [System.Console]::WindowHeight - 1) {
+				[System.Console]::CursorTop += 1
+				[System.Console]::CursorLeft = 0
+			}
 		}
 	}
 	[void] Clear() {
 		[System.Console]::Clear()
 	}
 	[void] ClearToEndOfScreen() {
-		[Console]::Write([char]0x1B + "[0J")
+		[Console]::Write($this.ANSI_ESC_CODES.ERASE_TO_END_OF_SCREEN)
 	}
 	# impl for System.IDisposable
 	[void] Dispose() {
 		[System.Console]::TreatControlCAsInput = $this.prevTreatControlCAsInput
 		$Global:PSStyle.OutputRendering = $this.prevOutputRendering
 
-		# leave alternate screen buffer
-		[Console]::Write([char]0x1B + "[?1049l")
+		[Console]::Write($this.ANSI_ESC_CODES.LEAVE_ALTERNALTE_SCREEN_BUF)
 	}
 }
 
@@ -349,8 +375,8 @@ try {
 
 				[PSCustomObject]@{
 					LastWriteTime = $_.LastWriteTime
-					Size = $size
-					Name = $style + $_.Name + $Global:PSStyle.Reset
+					Size          = $size
+					Name          = $style + $_.Name + $Global:PSStyle.Reset
 				}
 			}
 			| Format-Table -Wrap:$false -Property `
@@ -362,15 +388,15 @@ try {
 				Alignment    = "Left"
 			},
 			@{
-				Label        = "Size"
-				Expression   = { $_.Size }
-				Width        = 7
-				Alignment    = "Right"
+				Label      = "Size"
+				Expression = { $_.Size }
+				Width      = 7
+				Alignment  = "Right"
 			},
 			@{
 				Label      = "Name"
 				Expression = { $_.Name }
-				Width = [Math]::Max($cout.WindowWidth() - 19 - 7 - 2, 1)
+				Width      = [Math]::Max($cout.WindowWidth() - 19 - 7 - 2, 1)
 				Alignment  = "Left"
 			}
 			| Out-String -Stream

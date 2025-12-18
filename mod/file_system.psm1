@@ -80,6 +80,6 @@ class FileSystem {
 		return $item.FullName
 	}
 	[bool] _AtRootOfDrive() {
-		return $this.GetCurrentDir() -eq (Resolve-Path "\").ProviderPath
+		return $this.GetCurrentDir() -eq ($env:HOMEDRIVE + $env:HOMEPATH)
 	}
 }

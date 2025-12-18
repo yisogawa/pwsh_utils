@@ -11,6 +11,7 @@ process {
 	$path = $fs.ResolvePath($Path, $true)
 	if ($fs.IsDirectory($path)) {
 		$fs.SetCurrentDir($path) | Out-Null
+		return Get-ChildItem -Force
 	}
 	else {
 		$fs.OpenFile($path)
