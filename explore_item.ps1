@@ -33,11 +33,14 @@ class ConsoleReader : System.IDisposable {
 }
 
 class ConsoleWriter : System.IDisposable {
-	$ANSI_ESC_CODES = @{
+	$CMD = @{ # ANSI escape codes
 		ENTER_ALTERNATE_SCREEN_BUF  = [char]0x1B + "[?1049h"
 		LEAVE_ALTERNALTE_SCREEN_BUF = [char]0x1B + "[?1049l"
 		ERASE_TO_END_OF_LINE        = [char]0x1B + "[K"
 		ERASE_TO_END_OF_SCREEN      = [char]0x1B + "[0J"
+		SAVE_CURSOR_POS             = [char]0x1B + "7"
+		RESTORE_CURSOR_POS          = [char]0x1B + "8"
+		MOVE_CURSOR_TO_NEW_LINE     = [char]0x1B + "[1E"
 	}
 	$prevCursorVisible
 	$prevOutputRendering
@@ -49,7 +52,7 @@ class ConsoleWriter : System.IDisposable {
 		[System.Console]::CursorVisible = $false
 		$Global:PSStyle.OutputRendering = 'Ansi'
 
-		[Console]::Write($this.ANSI_ESC_CODES.ENTER_ALTERNATE_SCREEN_BUF)
+		[Console]::Write($this.CMD.ENTER_ALTERNATE_SCREEN_BUF)
 		[System.Console]::Clear()
 	}
 	[int] WindowWidth() {
@@ -77,46 +80,50 @@ class ConsoleWriter : System.IDisposable {
 		[System.Console]::Write($text)
 	}
 	[void] PrintLn([string]$text) {
-		# split text into lines
-		$lines = [PSCustomObject]@{ Text = $text }
-		| Format-Table -HideTableHeaders -Wrap
-		| Out-String -Stream
-		| Where-Object { -not [string]::IsNullOrEmpty($_) }
-		if (-not $lines) {
-			$lines = @("")
+		# NOTE: erase line content before write text to avoid deleting written char at right end of screen.
+		#
+		# writing text to fill console line, cursor position will be at right end of screen.
+		# | <-- screen --> |
+		# |AAAAAAAAAAAAAAAA| <-- text
+		# |               _| <-- cursor position
+		#
+		# erase code deletes last 'A' in this circumstance.
+		# | <-- screen --> |
+		# |AAAAAAAAAAAAAAA | <-- text
+		# |               _| <-- cursor position
+
+		$top = [System.Console]::CursorTop
+		[System.Console]::Write(
+			$this.CMD.SAVE_CURSOR_POS +
+			$this.CMD.ERASE_TO_END_OF_LINE +
+			$text
+		)
+		$lnMove = [System.Console]::CursorTop -ne $top
+
+		if ($lnMove) {
+			[System.Console]::Write(
+				$this.CMD.ERASE_TO_END_OF_LINE +
+				$this.CMD.RESTORE_CURSOR_POS +
+				$text
+			)
 		}
 
-		foreach ($line in $lines) {
-			# NOTE: write erase code in advance to avoid deleting last char of written text at right end of screen.
-			#
-			# writing text to fill console line, cursor position will be at right end of screen.
-			# | <-- screen --> |
-			# |AAAAAAAAAAAAAAAA| <-- text
-			# |               _| <-- cursor position
-			#
-			# erase code deletes last 'A' in this circumstance.
-			# | <-- screen --> |
-			# |AAAAAAAAAAAAAAA | <-- text
-			# |               _| <-- cursor position
-			[System.Console]::Write($this.ANSI_ESC_CODES.ERASE_TO_END_OF_LINE + $line)
-			if ([System.Console]::CursorTop -lt [System.Console]::WindowHeight - 1) {
-				[System.Console]::CursorTop += 1
-				[System.Console]::CursorLeft = 0
-			}
+		if ([System.Console]::CursorTop -lt [System.Console]::WindowHeight - 1) {
+			[System.Console]::Write($this.CMD.MOVE_CURSOR_TO_NEW_LINE)
 		}
 	}
 	[void] Clear() {
 		[System.Console]::Clear()
 	}
 	[void] ClearToEndOfScreen() {
-		[Console]::Write($this.ANSI_ESC_CODES.ERASE_TO_END_OF_SCREEN)
+		[Console]::Write($this.CMD.ERASE_TO_END_OF_SCREEN)
 	}
 	# impl for System.IDisposable
 	[void] Dispose() {
 		[System.Console]::TreatControlCAsInput = $this.prevTreatControlCAsInput
 		$Global:PSStyle.OutputRendering = $this.prevOutputRendering
 
-		[Console]::Write($this.ANSI_ESC_CODES.LEAVE_ALTERNALTE_SCREEN_BUF)
+		[Console]::Write($this.CMD.LEAVE_ALTERNALTE_SCREEN_BUF)
 	}
 }
 
@@ -130,6 +137,9 @@ class InputBox {
 	}
 	[string] TextBeforeCursor() {
 		return $this.value.Substring(0, $this.cursorPos)
+	}
+	[string] TextAfterCursor() {
+		return $this.value.Substring($this.cursorPos)
 	}
 	[void] MoveCursorLeft() {
 		if ($this.cursorPos -gt 0) {
@@ -344,9 +354,9 @@ try {
 		$cout.PrintLn($PSStyle.Foreground.Cyan + $fs.GetDisplayCurrentDir() + $Global:PSStyle.Reset)
 
 		# render input box
-		$cout.Print("? ")
-		$inputBoxPosition = $cout.CursorPosition()
-		$cout.PrintLn($inputBox.Text())
+		$cout.Print("? " + $inputBox.TextBeforeCursor())
+		$desiredCursorPosition = $cout.CursorPosition()
+		$cout.PrintLn($inputBox.TextAfterCursor())
 
 		# render item list
 		($cursorLeft, $cursorTop) = $cout.CursorPosition()
@@ -383,8 +393,8 @@ try {
 			@{
 				Label        = "LastWriteTime"
 				Expression   = { $_.LastWriteTime }
-				FormatString = "yyyy-MM-dd HH:mm:ss"
-				Width        = 19
+				FormatString = "yyyy-MM-dd HH:mm"
+				Width        = 16
 				Alignment    = "Left"
 			},
 			@{
@@ -396,10 +406,9 @@ try {
 			@{
 				Label      = "Name"
 				Expression = { $_.Name }
-				Width      = [Math]::Max($cout.WindowWidth() - 19 - 7 - 2, 1)
 				Alignment  = "Left"
 			}
-			| Out-String -Stream
+			| Out-String -Stream -Width ($cout.WindowWidth() - 1) # -1 to absorb environmental differences in handling the '…' character (U+2026).
 			| Where-Object { -not[string]::IsNullOrEmpty($_) }
 			| ForEach-Object { $cout.PrintLn($_) }
 		}
@@ -408,9 +417,7 @@ try {
 		}
 		$cout.ClearToEndOfScreen()
 
-		# set cursor for input box
-		$cout.SetCursorPosition($inputBoxPosition)
-		$cout.Print($inputBox.TextBeforeCursor())
+		$cout.SetCursorPosition($desiredCursorPosition)
 		$cout.ShowCursor()
 	}
 

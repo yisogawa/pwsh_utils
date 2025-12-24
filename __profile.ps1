@@ -1,7 +1,7 @@
 # STYLES
 $PSStyle.FileInfo.Directory = $PSStyle.Foreground.Blue
 
-[System.Console]::Title += " ($PID)"
+[System.Console]::Title = "pwsh [$PID]"
 
 function prompt {
 	Write-Host "$env:USERNAME@$env:COMPUTERNAME" -ForegroundColor Green -NoNewline
