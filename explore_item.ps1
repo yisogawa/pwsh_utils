@@ -120,7 +120,6 @@ class ConsoleWriter : System.IDisposable {
 	}
 	# impl for System.IDisposable
 	[void] Dispose() {
-		[System.Console]::TreatControlCAsInput = $this.prevTreatControlCAsInput
 		$Global:PSStyle.OutputRendering = $this.prevOutputRendering
 
 		[Console]::Write($this.CMD.LEAVE_ALTERNALTE_SCREEN_BUF)
@@ -436,7 +435,6 @@ try {
 					'F' { execGoForwardHistory }
 					'R' { $Script:reloadRequired = $true }
 					'U' { execMoveToParentDir }
-					'V' { $inputBox.InsertString((Get-Clipboard)) }
 				}
 			}
 			([System.ConsoleModifiers]::Control -bor [System.ConsoleModifiers]::Shift) {
@@ -519,7 +517,7 @@ try {
 		updateItemList
 		render $inputBox $itemList
 		:INPUT_LOOP do {
-			procInput $cin.ReadKey()
+			procInput $cin.ReadKey() # block if there is no key input.
 		}
 		while ($cin.KeyAvailable())
 	}
