@@ -43,6 +43,31 @@ class FileSystem {
 	[void] OpenFile([string]$path) {
 		explorer.exe $path
 	}
+	[void] CopyItem([string]$source, [string]$destination, [bool]$force) {
+		if ($force) {
+			Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+		}
+		else {
+			Copy-Item -LiteralPath $source -Destination $destination -Recurse
+		}
+	}
+	[void] MoveItem([string]$source, [string]$destination, [bool]$force) {
+		if ($force) {
+			Move-Item -LiteralPath $source -Destination $destination -Force
+		}
+		else {
+			Move-Item -LiteralPath $source -Destination $destination
+		}
+	}
+	[void] DeleteItem([string]$path) {
+		Remove-Item -LiteralPath $path -Recurse -Force
+	}
+	[void] NewFile([string]$path) {
+		New-Item -ItemType File -Path $path | Out-Null
+	}
+	[void] NewDirectory([string]$path) {
+		New-Item -ItemType Directory -Path $path | Out-Null
+	}
 	[array] GetChildItems() {
 		if ($this.virtualCurrentDir -eq $this.SYS_ROOT_PATH) {
 			return [System.IO.DriveInfo]::GetDrives()
