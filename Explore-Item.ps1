@@ -39,17 +39,17 @@ Commands
   /b, /f                  Go back or forward in directory history
   /cp                     Copy the current directory path to the clipboard
   /c                      Copy the selected item path to the clipboard
-  /c <path>               Copy the selected item to an unused final path
+  /c <path>               Copy the selected item
   /cf <path>              Copy and allow overwriting an existing file
-  /m <path>               Move or rename to an unused final path
+  /m <path>               Move or rename the selected item
   /mf <path>              Move or rename and allow overwriting a file
   /d                      Delete the selected item without confirmation
   /nf <name>              Create an empty file in the current directory
   /nd <name>              Create a directory in the current directory
 
 Paths containing spaces may be entered directly or surrounded by matching
-single or double quotes. Copy and move destinations must include the final
-item name. Existing directories are never overwritten.
+single or double quotes. When a copy or move destination is a directory, the
+selected item is placed inside that directory.
 
 Error display
   Esc                     Discard the command and return to normal mode
@@ -716,22 +716,6 @@ try {
 		}
 	}
 
-	function validateDestination([string]$source, [string]$destination, [bool]$force, [string]$commandName) {
-		if ([string]::Equals($source, $destination, [System.StringComparison]::OrdinalIgnoreCase)) {
-			throw (newCommandValidationError "Source and destination must be different")
-		}
-		$parent = [System.IO.Path]::GetDirectoryName($destination)
-		if ([string]::IsNullOrEmpty($parent) -or -not (Test-Path -LiteralPath $parent -PathType Container)) {
-			throw (newCommandValidationError "Destination parent directory does not exist: $parent")
-		}
-		if (Test-Path -LiteralPath $destination -PathType Container) {
-			throw (newCommandValidationError "Destination must include the item's final name; overwriting a directory is not supported")
-		}
-		if (-not $force -and (Test-Path -LiteralPath $destination)) {
-			$forceCommand = $commandName + 'f'
-			throw (newCommandValidationError "Destination already exists; use /$forceCommand to overwrite")
-		}
-	}
 
 	function validateNewItemDestination([string]$destination, [string]$itemName, [string]$commandName) {
 		if (
@@ -796,25 +780,21 @@ try {
 					$source | Set-Clipboard
 					break
 				}
-				validateDestination $source $command.Destination $false 'c'
 				$fs.CopyItem($source, $command.Destination, $false)
 				$state.ItemListInvalidated = $true
 			}
 			'cf' {
 				$source = selectedItemPath
-				validateDestination $source $command.Destination $true 'c'
 				$fs.CopyItem($source, $command.Destination, $true)
 				$state.ItemListInvalidated = $true
 			}
 			'm' {
 				$source = selectedItemPath
-				validateDestination $source $command.Destination $false 'm'
 				$fs.MoveItem($source, $command.Destination, $false)
 				$state.ItemListInvalidated = $true
 			}
 			'mf' {
 				$source = selectedItemPath
-				validateDestination $source $command.Destination $true 'm'
 				$fs.MoveItem($source, $command.Destination, $true)
 				$state.ItemListInvalidated = $true
 			}
