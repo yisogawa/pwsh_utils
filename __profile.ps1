@@ -1,13 +1,26 @@
 # STYLES
 $PSStyle.FileInfo.Directory = $PSStyle.Foreground.Blue
 
-[System.Console]::Title = "pwsh [$PID]"
-
 function prompt {
+	$location = (Get-Location).ProviderPath.Replace($env:HOMEDRIVE + $env:HOMEPATH, "~")
+	[System.Console]::Title = "[pwsh : $PID] $(Split-Path $location -Leaf)"
 	Write-Host "$env:USERNAME@$env:COMPUTERNAME" -ForegroundColor Green -NoNewline
 	Write-Host " " -NoNewline
-	Write-Host (Get-Location).ProviderPath.Replace($env:HOMEDRIVE + $env:HOMEPATH, "~") -ForegroundColor Cyan
+	Write-Host $location -ForegroundColor Cyan
 	return ">> "
+}
+
+# AUTO CD
+$ExecutionContext.InvokeCommand.CommandNotFoundAction = {
+	param($CommandName, $CommandLookupEventArgs)
+
+	$CommandName = $CommandName -replace '^get-', '' # ignore "get-" fallback
+	if (Test-Path -LiteralPath $CommandName -PathType Container) {
+		$CommandLookupEventArgs.CommandScriptBlock = {
+			Set-Location -LiteralPath $CommandName
+		}.GetNewClosure()
+	}
+	$CommandLookupEventArgs.StopSearch = $true
 }
 
 # ALIASES
