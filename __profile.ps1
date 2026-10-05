@@ -22,6 +22,24 @@ $ExecutionContext.InvokeCommand.CommandNotFoundAction = {
 	}
 	$CommandLookupEventArgs.StopSearch = $true
 }
+# shortcuts to directories are hooked before lookup, since ".\foo.lnk" would be found as an application
+$ExecutionContext.InvokeCommand.PreCommandLookupAction = {
+	param($CommandName, $CommandLookupEventArgs)
+
+	if (-not $CommandName.EndsWith(".lnk", [System.StringComparison]::OrdinalIgnoreCase)) {
+		return
+	}
+	if (-not (Test-Path -LiteralPath $CommandName -PathType Leaf)) {
+		return
+	}
+	$destination = try { & "$PSScriptRoot\Get-Shortcut.ps1" -Path $CommandName } catch { $null }
+	if ($destination -and (Test-Path -LiteralPath $destination -PathType Container)) {
+		$CommandLookupEventArgs.CommandScriptBlock = {
+			Set-Location -LiteralPath $destination
+		}.GetNewClosure()
+		$CommandLookupEventArgs.StopSearch = $true
+	}
+}
 
 # ALIASES
 foreach ($file in (Get-ChildItem -Path "$PSScriptRoot\*.ps1" -Exclude $MyInvocation.MyCommand.Name)) {
