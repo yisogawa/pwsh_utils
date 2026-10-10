@@ -3,7 +3,7 @@ $PSStyle.FileInfo.Directory = $PSStyle.Foreground.Blue
 
 function prompt {
 	$location = (Get-Location).ProviderPath.Replace($env:HOMEDRIVE + $env:HOMEPATH, "~")
-	[System.Console]::Title = "[pwsh : $PID] $(Split-Path $location -Leaf)"
+	[System.Console]::Title = "pwsh ($(Split-Path $location -Leaf))"
 	Write-Host "$env:USERNAME@$env:COMPUTERNAME" -ForegroundColor Green -NoNewline
 	Write-Host " " -NoNewline
 	Write-Host $location -ForegroundColor Cyan
