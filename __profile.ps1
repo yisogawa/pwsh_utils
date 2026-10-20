@@ -1,3 +1,5 @@
+using module .\mod\file_system.psm1
+
 # STYLES
 $PSStyle.FileInfo.Directory = $PSStyle.Foreground.Blue
 
@@ -10,14 +12,18 @@ function prompt {
 	return ">> "
 }
 
+# ERROR HANDLING
+$ErrorActionPreference = 'Stop'
+
 # AUTO CD
 $ExecutionContext.InvokeCommand.CommandNotFoundAction = {
 	param($CommandName, $CommandLookupEventArgs)
 
 	$CommandName = $CommandName -replace '^get-', '' # ignore "get-" fallback
-	if (Test-Path -LiteralPath $CommandName -PathType Container) {
+	$fs = [FileSystem]::new()
+	if ($fs.IsDirectory($CommandName)) {
 		$CommandLookupEventArgs.CommandScriptBlock = {
-			Set-Location -LiteralPath $CommandName
+			[void]$fs.SetCurrentDir($CommandName)
 		}.GetNewClosure()
 	}
 	$CommandLookupEventArgs.StopSearch = $true
@@ -29,13 +35,11 @@ $ExecutionContext.InvokeCommand.PreCommandLookupAction = {
 	if (-not $CommandName.EndsWith(".lnk", [System.StringComparison]::OrdinalIgnoreCase)) {
 		return
 	}
-	if (-not (Test-Path -LiteralPath $CommandName -PathType Leaf)) {
-		return
-	}
-	$destination = try { & "$PSScriptRoot\Get-Shortcut.ps1" -Path $CommandName } catch { $null }
-	if ($destination -and (Test-Path -LiteralPath $destination -PathType Container)) {
+	$fs = [FileSystem]::new()
+	$destination = try { $fs.ResolvePath($CommandName, $true) } catch { $null }
+	if ($destination -and $fs.IsDirectory($destination)) {
 		$CommandLookupEventArgs.CommandScriptBlock = {
-			Set-Location -LiteralPath $destination
+			[void]$fs.SetCurrentDir($destination)
 		}.GetNewClosure()
 		$CommandLookupEventArgs.StopSearch = $true
 	}
@@ -46,7 +50,6 @@ foreach ($file in (Get-ChildItem -Path "$PSScriptRoot\*.ps1" -Exclude $MyInvocat
 	Set-Alias -Name $file.BaseName -Value $file.FullName
 }
 Set-Alias -Name nth      -Value $PSScriptRoot\Get-Nth.ps1
-Set-Alias -Name tostring -Value $PSScriptRoot\Get-String.ps1
-Set-Alias -Name xi       -Value $PSScriptRoot\Explore-Item.ps1
+Set-Alias -Name xi       -Value $PSScriptRoot\Show-ItemExplorer.ps1
 Set-Alias -Name fi       -Value $PSScriptRoot\Find-Item.ps1
 Set-Alias -Name oi       -Value $PSScriptRoot\Open-Item.ps1

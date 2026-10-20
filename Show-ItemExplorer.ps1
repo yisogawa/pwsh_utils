@@ -12,7 +12,7 @@ $ErrorActionPreference = 'Stop'
 
 if ($Help) {
 	@'
-Explore-Item.ps1 [-Path <path>] [-Help]
+Show-ItemExplorer.ps1 [-Path <path>] [-Help]
 
 Interactively searches and operates on files and directories.
 
@@ -37,6 +37,7 @@ Commands
   /h, /help               Open this help in a new PowerShell process
   /r                      Reload the item list
   /b, /f                  Go back or forward in directory history
+  /g <path>               Go to the path (a file is selected in its directory)
   /cp                     Copy the current directory path to the clipboard
   /c                      Copy the selected item path to the clipboard
   /c <path>               Copy the selected item
@@ -48,8 +49,10 @@ Commands
   /nd <name>              Create a directory in the current directory
 
 Paths containing spaces may be entered directly or surrounded by matching
-single or double quotes. When a copy or move destination is a directory, the
-selected item is placed inside that directory.
+single or double quotes. A leading "~" in a path refers to the home directory.
+When a copy or move destination is a directory, the selected item is placed
+inside that directory. In the drive list, items cannot be copied, moved,
+deleted, or created, and /g accepts only an absolute path or "~".
 
 Error display
   Esc                     Discard the command and return to normal mode
@@ -667,18 +670,23 @@ try {
 			if ($hasArgument -and -not [string]::IsNullOrWhiteSpace($argument)) {
 				throw (newCommandValidationError "/$name does not accept an argument")
 			}
-			return [PSCustomObject]@{ Name = $name; Destination = $null; Force = $false }
+			return [PSCustomObject]@{ Name = $name; Argument = $null; Force = $false }
 		}
 
 		if ($name -eq 'c' -and -not $hasArgument) {
-			return [PSCustomObject]@{ Name = $name; Destination = $null; Force = $false }
+			return [PSCustomObject]@{ Name = $name; Argument = $null; Force = $false }
 		}
 
-		if ($name -notin @('c', 'cf', 'm', 'mf', 'nf', 'nd')) {
+		if ($name -notin @('c', 'cf', 'm', 'mf', 'nf', 'nd', 'g')) {
 			throw (newCommandValidationError "Unknown command: /$name")
 		}
+		$requiredArgument = switch ($name) {
+			'g' { "a path" }
+			{ $_ -in @('nf', 'nd') } { "a name" }
+			default { "a destination path" }
+		}
 		if (-not $hasArgument -or [string]::IsNullOrWhiteSpace($argument)) {
-			throw (newCommandValidationError "/$name requires a destination path")
+			throw (newCommandValidationError "/$name requires $requiredArgument")
 		}
 
 		$singleQuote = [char]39
@@ -689,52 +697,46 @@ try {
 		$lastIsQuote = $last -eq $singleQuote -or $last -eq $doubleQuote
 		if ($firstIsQuote -or $lastIsQuote) {
 			if (-not ($firstIsQuote -and $last -eq $first -and $argument.Length -ge 2)) {
-				throw (newCommandValidationError "Destination path has unmatched quotes")
+				throw (newCommandValidationError "Argument has unmatched quotes")
 			}
 			$argument = $argument.Substring(1, $argument.Length - 2).Trim()
 		}
 		if ([string]::IsNullOrWhiteSpace($argument)) {
-			throw (newCommandValidationError "/$name requires a destination path")
-		}
-
-		try {
-			$currentDir = $fs.GetCurrentDir()
-			if ($currentDir -eq $fs.SYS_ROOT_PATH) {
-				throw [System.ArgumentException]::new("The virtual root cannot resolve a destination")
-			}
-			$destination = [System.IO.Path]::GetFullPath($argument, $currentDir)
-		}
-		catch {
-			throw (newCommandValidationError "Invalid destination path: $argument")
+			throw (newCommandValidationError "/$name requires $requiredArgument")
 		}
 
 		return [PSCustomObject]@{
-			Name        = $name
-			Argument    = $argument
-			Destination = $destination
-			Force       = $name.EndsWith('f')
+			Name     = $name
+			Argument = $argument
+			Force    = $name -in @('cf', 'mf')
 		}
 	}
 
+	function assertNotAtRoot([string]$commandName) {
+		if ($fs.GetCurrentDir() -eq $fs.SYS_ROOT_PATH) {
+			throw (newCommandValidationError "/$commandName cannot be used in $($fs.SYS_ROOT_PATH)")
+		}
+	}
 
-	function validateNewItemDestination([string]$destination, [string]$itemName, [string]$commandName) {
-		if (
-			[System.IO.Path]::IsPathRooted($itemName) -or
-			$itemName.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
-			$itemName.Contains([System.IO.Path]::DirectorySeparatorChar) -or
-			$itemName.Contains([System.IO.Path]::AltDirectorySeparatorChar) -or
-			$itemName -in @('.', '..')
-		) {
+	function resolveDestination([string]$path) {
+		try {
+			return $fs.ResolveDestination($path)
+		}
+		catch {
+			throw (newCommandValidationError "Invalid destination path: $path")
+		}
+	}
+
+	function resolveNewItemPath([string]$name, [string]$commandName) {
+		assertNotAtRoot $commandName
+		if (-not $fs.IsValidItemName($name)) {
 			throw (newCommandValidationError "/$commandName accepts a name, not a path")
 		}
-		$currentDir = $fs.GetCurrentDir()
-		$parent = [System.IO.Path]::GetDirectoryName($destination)
-		if (-not [string]::Equals($parent, $currentDir, [System.StringComparison]::OrdinalIgnoreCase)) {
-			throw (newCommandValidationError "/$commandName accepts a name, not a path")
+		$path = $fs.GetChildPath($name)
+		if ($fs.Exists($path)) {
+			throw (newCommandValidationError "Item already exists: $path")
 		}
-		if (Test-Path -LiteralPath $destination) {
-			throw (newCommandValidationError "Item already exists: $destination")
-		}
+		return $path
 	}
 
 	function selectedItemPath() {
@@ -759,43 +761,47 @@ try {
 			'r' { $state.ItemListInvalidated = $true }
 			'b' { return execGoBackHistory }
 			'f' { return execGoForwardHistory }
+			'g' { return execGoTo $command.Argument }
 			'cp' { $fs.GetCurrentDir() | Set-Clipboard }
 			'd' {
+				assertNotAtRoot 'd'
 				$fs.DeleteItem((selectedItemPath))
 				$state.ItemListInvalidated = $true
 			}
 			'nf' {
-				validateNewItemDestination $command.Destination $command.Argument 'nf'
-				$fs.NewFile($command.Destination)
+				$fs.NewFile((resolveNewItemPath $command.Argument 'nf'))
 				$state.ItemListInvalidated = $true
 			}
 			'nd' {
-				validateNewItemDestination $command.Destination $command.Argument 'nd'
-				$fs.NewDirectory($command.Destination)
+				$fs.NewDirectory((resolveNewItemPath $command.Argument 'nd'))
 				$state.ItemListInvalidated = $true
 			}
 			'c' {
 				$source = selectedItemPath
-				if ($null -eq $command.Destination) {
+				if ($null -eq $command.Argument) {
 					$source | Set-Clipboard
 					break
 				}
-				$fs.CopyItem($source, $command.Destination, $false)
+				assertNotAtRoot 'c'
+				$fs.CopyItem($source, (resolveDestination $command.Argument), $false)
 				$state.ItemListInvalidated = $true
 			}
 			'cf' {
+				assertNotAtRoot 'cf'
 				$source = selectedItemPath
-				$fs.CopyItem($source, $command.Destination, $true)
+				$fs.CopyItem($source, (resolveDestination $command.Argument), $true)
 				$state.ItemListInvalidated = $true
 			}
 			'm' {
+				assertNotAtRoot 'm'
 				$source = selectedItemPath
-				$fs.MoveItem($source, $command.Destination, $false)
+				$fs.MoveItem($source, (resolveDestination $command.Argument), $false)
 				$state.ItemListInvalidated = $true
 			}
 			'mf' {
+				assertNotAtRoot 'mf'
 				$source = selectedItemPath
-				$fs.MoveItem($source, $command.Destination, $true)
+				$fs.MoveItem($source, (resolveDestination $command.Argument), $true)
 				$state.ItemListInvalidated = $true
 			}
 		}
@@ -821,6 +827,39 @@ try {
 			$fs.OpenFile($path)
 		}
 		return [InputResult]::Continue
+	}
+
+	function execGoTo([string]$path) {
+		# relative paths have no base directory in the virtual root.
+		if ($fs.GetCurrentDir() -eq $fs.SYS_ROOT_PATH -and $fs.IsRelativePath($path)) {
+			throw (newCommandValidationError "Relative paths cannot be used in $($fs.SYS_ROOT_PATH): $path")
+		}
+		try {
+			$resolvedPath = $fs.ResolvePath($path, $true)
+		}
+		catch {
+			throw (newCommandValidationError "Path not found: $path")
+		}
+
+		if ($fs.IsDirectory($resolvedPath)) {
+			$dirPath = $resolvedPath
+			$query = ""
+		}
+		else {
+			$dirPath = $resolvedPath | Split-Path -Parent
+			$query = $resolvedPath | Split-Path -Leaf
+		}
+		try {
+			$fs.SetCurrentDir($dirPath) | Out-Null
+		}
+		catch {
+			throw (newCommandValidationError "Cannot go to: $path")
+		}
+		$history.Do($fs.GetCurrentDir())
+		$state.QueryInput.Clear()
+		$state.QueryInput.InsertString($query)
+		$state.ItemListInvalidated = $true
+		return [InputResult]::RestartLoop
 	}
 
 	function execMoveToParentDir() {
