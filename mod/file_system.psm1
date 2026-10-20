@@ -13,8 +13,19 @@ class FileSystem {
 		return (Get-Location).ProviderPath
 	}
 	[string] GetDisplayCurrentDir() {
-		$homeDir = (Resolve-Path -LiteralPath "~").ProviderPath
-		return $this.GetCurrentDir().Replace($homeDir, "~")
+		$currentDir = $this.GetCurrentDir()
+		if ($currentDir -eq $this.SYS_ROOT_PATH) {
+			return $currentDir
+		}
+		$separator = [System.IO.Path]::DirectorySeparatorChar
+		$homeDir = (Resolve-Path -LiteralPath "~").ProviderPath.TrimEnd($separator)
+		if ([string]::Equals($currentDir, $homeDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+			return "~"
+		}
+		if ($currentDir.StartsWith($homeDir + $separator, [System.StringComparison]::OrdinalIgnoreCase)) {
+			return "~" + $currentDir.Substring($homeDir.Length)
+		}
+		return $currentDir
 	}
 	[bool] SetCurrentDir([string]$path) {
 		if ($path -eq $this.SYS_ROOT_PATH) {
@@ -39,6 +50,41 @@ class FileSystem {
 			return $true
 		}
 		return Test-Path -LiteralPath $path -PathType Container
+	}
+	[bool] Exists([string]$path) {
+		return Test-Path -LiteralPath $path
+	}
+	[bool] IsValidItemName([string]$name) {
+		return -not (
+			[string]::IsNullOrWhiteSpace($name) -or
+			$name.IndexOfAny([System.IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
+			$name.Contains([System.IO.Path]::DirectorySeparatorChar) -or
+			$name.Contains([System.IO.Path]::AltDirectorySeparatorChar) -or
+			$name -in @('.', '..')
+		)
+	}
+	[bool] IsRelativePath([string]$path) {
+		# true if the path depends on the current directory.
+		return -not (
+			$path -eq $this.SYS_ROOT_PATH -or
+			$path -eq "~" -or
+			$path.StartsWith("~" + [System.IO.Path]::DirectorySeparatorChar) -or
+			$path.StartsWith("~" + [System.IO.Path]::AltDirectorySeparatorChar) -or
+			[System.IO.Path]::IsPathFullyQualified($path)
+		)
+	}
+	[string] ResolveDestination([string]$path) {
+		# resolves a path that may not exist yet, following PowerShell rules (e.g. "~").
+		return $global:ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($path)
+	}
+	[string] GetChildPath([string]$name) {
+		if ($this.virtualCurrentDir -eq $this.SYS_ROOT_PATH) {
+			throw [System.InvalidOperationException]::new("The virtual root cannot contain items")
+		}
+		if (-not $this.IsValidItemName($name)) {
+			throw [System.ArgumentException]::new("Invalid item name: $name")
+		}
+		return [System.IO.Path]::Join($this.GetCurrentDir(), $name)
 	}
 	[void] OpenFile([string]$path) {
 		explorer.exe $path
@@ -95,7 +141,7 @@ class FileSystem {
 		if ($path -eq $this.SYS_ROOT_PATH) {
 			return $path
 		}
-		$item = Get-Item $path -Force
+		$item = Get-Item -LiteralPath $path -Force
 		if ($traceShortcutTarget) {
 			if ($item.GetType() -eq [System.IO.FileInfo] -and $item.Extension -eq ".lnk") {
 				$targetPath = [ShortcutManager]::GetShortcutTarget($path)
