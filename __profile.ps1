@@ -3,9 +3,16 @@ using module .\mod\file_system.psm1
 # STYLES
 $PSStyle.FileInfo.Directory = $PSStyle.Foreground.Blue
 
+# evaluated once at startup, since elevation cannot change within a session
+$IsAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+	[Security.Principal.WindowsBuiltInRole]::Administrator)
+
 function prompt {
 	$location = (Get-Location).ProviderPath.Replace($env:HOMEDRIVE + $env:HOMEPATH, "~")
-	[System.Console]::Title = "pwsh ($(Split-Path $location -Leaf))"
+	[System.Console]::Title = "pwsh $(if ($IsAdmin) { '[admin] ' })($(Split-Path $location -Leaf))"
+	if ($IsAdmin) {
+		Write-Host "[ADMIN] " -ForegroundColor Red -NoNewline
+	}
 	Write-Host "$env:USERNAME@$env:COMPUTERNAME" -ForegroundColor Green -NoNewline
 	Write-Host " " -NoNewline
 	Write-Host $location -ForegroundColor Cyan
