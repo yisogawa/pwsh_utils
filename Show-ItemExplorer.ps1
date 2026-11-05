@@ -366,22 +366,39 @@ class History {
 	[int] $currentIndex = 0
 
 	History() {}
+	# Keeps the instance across script runs within the process.
+	# Classes in this script get a new type on every run, so the previous
+	# instance cannot be converted to [History]: the return type must be [object].
+	# Changes to this class apply only after clearing the global variable.
+	static [object] Instance() {
+		if ($null -eq $global:ShowItemExplorerHistory) {
+			$global:ShowItemExplorerHistory = [History]::new()
+		}
+		return $global:ShowItemExplorerHistory
+	}
 	[void] Do([object]$entry) {
+		if ($this.entries.Count -gt 0 -and $this.entries[$this.currentIndex] -eq $entry) {
+			return
+		}
 		$this.entries = $this.entries[0..($this.currentIndex)] # discard future entries
 		$this.entries += $entry
 		$this.currentIndex = $this.entries.Count - 1
 	}
-	[object] Undo() {
-		if ($this.currentIndex -gt 0) {
-			$this.currentIndex -= 1
-			return $this.entries[$this.currentIndex]
+	[object] Undo([scriptblock]$isAvailable) {
+		for ($i = $this.currentIndex - 1; $i -ge 0; $i--) {
+			if (& $isAvailable $this.entries[$i]) {
+				$this.currentIndex = $i
+				return $this.entries[$i]
+			}
 		}
 		return $null
 	}
-	[object] Redo() {
-		if ($this.currentIndex -lt $this.entries.Count - 1) {
-			$this.currentIndex += 1
-			return $this.entries[$this.currentIndex]
+	[object] Redo([scriptblock]$isAvailable) {
+		for ($i = $this.currentIndex + 1; $i -lt $this.entries.Count; $i++) {
+			if (& $isAvailable $this.entries[$i]) {
+				$this.currentIndex = $i
+				return $this.entries[$i]
+			}
 		}
 		return $null
 	}
@@ -395,7 +412,7 @@ try {
 	$cin = [ConsoleReader]::new()
 	$cout = [ConsoleWriter]::new()
 
-	$history = [History]::new()
+	$history = [History]::Instance()
 	$state = [AppState]::new()
 	$itemList = [ListViewer]::new()
 
@@ -874,7 +891,7 @@ try {
 	}
 
 	function execGoBackHistory() {
-		if ($dirPath = $history.Undo()) {
+		if ($dirPath = $history.Undo({ param($path) $fs.IsDirectory($path) })) {
 			$fs.SetCurrentDir($dirPath) | Out-Null
 			$state.QueryInput.Clear()
 			$state.ItemListInvalidated = $true
@@ -884,7 +901,7 @@ try {
 	}
 
 	function execGoForwardHistory() {
-		if ($dirPath = $history.Redo()) {
+		if ($dirPath = $history.Redo({ param($path) $fs.IsDirectory($path) })) {
 			$fs.SetCurrentDir($dirPath) | Out-Null
 			$state.QueryInput.Clear()
 			$state.ItemListInvalidated = $true
